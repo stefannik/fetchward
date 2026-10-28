@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fetchward"
+version = "0.3.0"
+description = "Resource acquisition with explicit outcomes, provenance and safety defaults."
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Cancellable DNS: lookups must stop at the acquisition deadline.
+    "pycares>=5.2,<6",
+    # Native HTTP backend: Chrome impersonation with HTTP/2. The minor-version pin bounds
+    # impersonation-target drift within a release line.
+    "curl_cffi>=0.17,<0.18",
+]
+
+[project.optional-dependencies]
+# Optional browser engine. Run `playwright install chromium` after installation.
+browser = ["playwright==1.64.1"]
+
+[dependency-groups]
+dev = ["pytest>=8", "trustme>=1.2", "h2>=4.1", "h11>=0.16"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fetchward"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Import this checkout's src even when the shared venv has an editable install of another worktree.
+pythonpath = ["src"]
+addopts = "-ra"
+markers = ["browser: drives a real Playwright Chromium (skipped when unavailable)"]

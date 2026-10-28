@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "wiki-scraping",
+      "url": "https://en.wikipedia.org/wiki/Web_scraping",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "Data scraping",
+      "js_only": false
+    },
+    {
+      "id": "wiki-python",
+      "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "Guido van Rossum",
+      "js_only": false
+    },
+    {
+      "id": "mdn-http",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "HTTP is a protocol",
+      "js_only": false
+    },
+    {
+      "id": "pydocs-json",
+      "url": "https://docs.python.org/3/library/json.html",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "JSON encoder and decoder",
+      "js_only": false
+    },
+    {
+      "id": "pep8",
+      "url": "https://peps.python.org/pep-0008/",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "Style Guide for Python Code",
+      "js_only": false
+    },
+    {
+      "id": "example-com",
+      "url": "https://example.com/",
+      "category": "static",
+      "expect_kind": "html",
+      "marker": "Example Domain",
+      "js_only": false
+    },
+    {
+      "id": "quotes-js",
+      "url": "https://quotes.toscrape.com/js/",
+      "category": "js_rendered",
+      "expect_kind": "html",
+      "marker": "class=\"author\"",
+      "js_only": true,
+      "selector": ".quote"
+    },
+    {
+      "id": "quotes-js-p2",
+      "url": "https://quotes.toscrape.com/js/page/2/",
+      "category": "js_rendered",
+      "expect_kind": "html",
+      "marker": "class=\"author\"",
+      "js_only": true,
+      "selector": ".quote"
+    },
+    {
+      "id": "quotes-scroll",
+      "url": "https://quotes.toscrape.com/scroll",
+      "category": "js_rendered",
+      "expect_kind": "html",
+      "marker": "Albert Einstein",
+      "js_only": true,
+      "selector": ".quote"
+    },
+    {
+      "id": "quotes-js-p3",
+      "url": "https://quotes.toscrape.com/js/page/3/",
+      "category": "js_rendered",
+      "expect_kind": "html",
+      "marker": "class=\"author\"",
+      "js_only": true,
+      "selector": ".quote"
+    },
+    {
+      "id": "scrapethissite-ajax",
+      "url": "https://www.scrapethissite.com/pages/ajax-javascript/",
+      "category": "js_rendered",
+      "expect_kind": "html",
+      "marker": "Oscar Winning Films",
+      "js_only": false
+    },
+    {
+      "id": "bbc-news",
+      "url": "https://www.bbc.com/news",
+      "category": "heavy",
+      "expect_kind": "html",
+      "marker": "BBC",
+      "js_only": false
+    },
+    {
+      "id": "guardian-intl",
+      "url": "https://www.theguardian.com/international",
+      "category": "heavy",
+      "expect_kind": "html",
+      "marker": "Guardian",
+      "js_only": false
+    },
+    {
+      "id": "npr-home",
+      "url": "https://www.npr.org/",
+      "category": "heavy",
+      "expect_kind": "html",
+      "marker": "NPR",
+      "js_only": false
+    },
+    {
+      "id": "aljazeera-home",
+      "url": "https://www.aljazeera.com/",
+      "category": "heavy",
+      "expect_kind": "html",
+      "marker": "Al Jazeera",
+      "js_only": false
+    },
+    {
+      "id": "github-api",
+      "url": "https://api.github.com/repos/python/cpython",
+      "category": "json_api",
+      "expect_kind": "json",
+      "marker": "cpython",
+      "js_only": false
+    },
+    {
+      "id": "jsonplaceholder",
+      "url": "https://jsonplaceholder.typicode.com/posts/1",
+      "category": "json_api",
+      "expect_kind": "json",
+      "marker": "sunt aut facere",
+      "js_only": false
+    },
+    {
+      "id": "pypi-json",
+      "url": "https://pypi.org/pypi/requests/json",
+      "category": "json_api",
+      "expect_kind": "json",
+      "marker": "Python HTTP for Humans",
+      "js_only": false
+    },
+    {
+      "id": "arxiv-pdf",
+      "url": "https://arxiv.org/pdf/1706.03762",
+      "category": "file",
+      "expect_kind": "file",
+      "marker": "%PDF-",
+      "js_only": false
+    },
+    {
+      "id": "wikimedia-png",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png",
+      "category": "file",
+      "expect_kind": "file",
+      "marker": "PNG",
+      "js_only": false
+    },
+    {
+      "id": "github-csv",
+      "url": "https://raw.githubusercontent.com/datasets/country-list/master/data.csv",
+      "category": "file",
+      "expect_kind": "file",
+      "marker": "Afghanistan",
+      "js_only": false
+    },
+    {
+      "id": "redir-http-wiki",
+      "url": "http://en.wikipedia.org/wiki/Web_scraping",
+      "category": "redirect",
+      "expect_kind": "html",
+      "marker": "Data scraping",
+      "js_only": false
+    },
+    {
+      "id": "redir-slash-pydocs",
+      "url": "https://docs.python.org/3/library",
+      "category": "redirect",
+      "expect_kind": "html",
+      "marker": "The Python standard library",
+      "js_only": false
+    },
+    {
+      "id": "redir-doi-arxiv",
+      "url": "https://doi.org/10.48550/arXiv.1706.03762",
+      "category": "redirect",
+      "expect_kind": "html",
+      "marker": "Attention Is All You Need",
+      "js_only": false
+    },
+    {
+      "id": "err-404-wiki",
+      "url": "https://en.wikipedia.org/wiki/Special:NoSuchPageOtFetchBench123",
+      "category": "error",
+      "expect_kind": "html",
+      "marker": "Wikipedia does not have an article",
+      "js_only": false,
+      "expect_status": 404
+    },
+    {
+      "id": "amazon-home",
+      "url": "https://www.amazon.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "Amazon",
+      "js_only": false,
+      "expect_restriction_ok": true
+    },
+    {
+      "id": "nyt-home",
+      "url": "https://www.nytimes.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "New York Times",
+      "js_only": false,
+      "expect_restriction_ok": true
+    },
+    {
+      "id": "zillow-home",
+      "url": "https://www.zillow.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "Zillow",
+      "js_only": false,
+      "expect_restriction_ok": true
+    },
+    {
+      "id": "walmart-home",
+      "url": "https://www.walmart.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "Walmart",
+      "js_only": false,
+      "expect_restriction_ok": true
+    },
+    {
+      "id": "ticketmaster-home",
+      "url": "https://www.ticketmaster.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "Ticketmaster",
+      "js_only": false,
+      "expect_restriction_ok": true
+    },
+    {
+      "id": "cnn-home",
+      "url": "https://www.cnn.com/",
+      "category": "bot_protected",
+      "expect_kind": "html",
+      "marker": "CNN",
+      "js_only": false,
+      "expect_restriction_ok": true
+    }
+  ]
+}
