@@ -2,9 +2,9 @@
 
 Acquire a web resource as reliably as practical and return the best accessible
 representation, with an honest outcome, provenance and the limits that applied.
-Version 0.3.0: guarded HTTP and optional browser acquisition, `auto` fallback, opt-in
-response cache, acquisition memory, async API, persistent browser profiles and
-user-driven interactive sessions. Tested on macOS (CPython 3.11–3.14);
+Version 0.4.0: guarded HTTP and optional browser acquisition, `auto` fallback, opt-in
+response cache, acquisition memory, async API, persistent browser profiles,
+user-driven interactive sessions and an opt-in real-Chrome stealth mode. Tested on macOS (CPython 3.11–3.14);
 not published to a package index.
 
 ## Install
@@ -96,6 +96,25 @@ matches; `text_contains` requires a matched element's text to contain a string; 
 waits until the DOM stops changing for that interval. All waits share `selector_timeout` (5 s)
 and the remaining deadline. Invalid selectors raise `ConfigurationError` before any I/O. A
 retained capture with an unmet readiness requirement is `partial`, not success.
+
+## Stealth (opt-in)
+
+`StealthPolicy(mode="real-chrome")` launches installed Google Chrome as a separate process
+without Playwright's automation switches. It requires Chrome and a dedicated `BrowserProfile`;
+it is heavier than the default and is never enabled automatically. The profile cannot be
+shared with Playwright Chromium. `chrome_path` optionally selects a different Chrome executable.
+
+```python
+from fetchward import AcquisitionPolicy, BrowserProfile, Fetcher, StealthPolicy
+policy = AcquisitionPolicy(stealth=StealthPolicy(mode="real-chrome"))
+with Fetcher(policy, profile=BrowserProfile("./chrome-profile")) as fetcher:
+    result = fetcher.fetch("https://example.com/", mode="browser")
+```
+
+The loopback egress proxy is unauthenticated in this mode, but remains destination-guarded and
+short-lived. Fetches bypass service workers; interactive sessions allow them and report evidence.
+Sites' terms may forbid automated access, and accounts can be restricted. This is not a way
+around explicit blocks. No fingerprint spoofing scripts or CAPTCHA solving are provided.
 
 ## Outcomes
 
@@ -208,12 +227,13 @@ incompatible file is reported once as `memory.corrupt` evidence and recreated.
 
 ## Browser confinement
 
-A per-acquisition authenticated loopback proxy resolves and validates every
-destination before connecting to its pinned address. HTTPS is tunneled without
-TLS termination, so Chromium verifies certificates normally. Loopback is not
-bypassed; disabled resolver, QUIC and WebRTC UDP flags and blocked service
-workers confine Chromium to the proxy. This relies on Chromium honoring those
-flags and is **not** an OS-level sandbox.
+A per-acquisition loopback proxy resolves and validates every destination before
+connecting to its pinned address. It is authenticated except in opt-in real-Chrome
+mode (see above). HTTPS is tunneled without TLS termination, so Chromium verifies
+certificates normally. Loopback is not bypassed; resolver, QUIC and WebRTC UDP are
+disabled. Service workers are blocked normally, bypassed in real-Chrome fetches,
+and allowed in real-Chrome interactive sessions. This relies on Chromium honoring
+its flags and is **not** an OS-level sandbox.
 
 The browser blocks image, media and font resource types by default; configure
 `TransportPolicy.browser_block_resource_types` to change them. The engine defaults
@@ -264,7 +284,7 @@ history). fetchward does not encrypt it; protect it like a password store.**
 Some pages need a person: a login on a site you subscribe to, a consent wall, a
 challenge. `interactive()` opens one **visible** browser on your profile and
 returns when the session ends. The library never clicks, types or fills a form.
-Some sites refuse logins from automated browsers; this library does not work around that.
+Some sites refuse logins from automated browsers, including potentially the opt-in real-Chrome mode.
 
 ```python
 session = fetcher.interactive(            # fetcher created with profile=...
@@ -280,8 +300,8 @@ A profile is required (otherwise `ConfigurationError` before I/O) and its lock
 is held for the whole session. Cookies the user's actions produce stay in the
 profile for later headless browser fetches. Confinement is unchanged: every
 connection still goes through the guarded proxy, popups are allowed but stay
-inside it, resource blocking is off, downloads and service workers are off, and
-robots.txt does not apply. The session request count is capped at 5,000
+inside it, resource blocking is off, downloads are refused, and robots.txt does
+not apply. Service workers are off except in opt-in real-Chrome sessions. The session request count is capped at 5,000
 (`budget.browser_requests` evidence, not the normal page-request budget).
 `InteractionResult` (`ended_by`, redacted `final_url`, `elapsed`, `requests`,
 `evidence`) holds no cookies or page content. `bench/manual_interactive.py` runs

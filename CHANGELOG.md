@@ -1,5 +1,14 @@
 # fetchward Changelog
 
+## 0.4.0 — 2026-10-29
+
+Adds an opt-in stealth mode for sites that refuse automated browsers. Verified: 481 tests on CPython 3.11–3.14 (macOS arm64).
+
+- New opt-in `StealthPolicy(mode="real-chrome")` (`AcquisitionPolicy.stealth`): profile-backed fetches and interactive sessions run the installed Google Chrome as an ordinary process, without Playwright's automation switches, so `navigator.webdriver` is false. It requires a `BrowserProfile` (`ConfigurationError` otherwise) and is never enabled automatically.
+- In this mode the loopback egress proxy is unauthenticated for the lifetime of the Chrome process, but every destination is still guarded; results carry `stealth.real_chrome` (Chrome version) and `stealth.proxy_unauthenticated` evidence. Fetches bypass service workers; interactive sessions allow them (`stealth.service_workers_allowed`).
+- Profiles record which browser engine uses them (marker schema 2; schema-1 markers are still read); using a profile with the other engine raises `ConfigurationError`.
+- `bench/manual_interactive.py` accepts `--stealth real-chrome`.
+
 ## 0.3.0 — 2026-10-28
 
 Adds persistent browser profiles, user-driven interactive sessions and a browser engine choice, and renames the package to `fetchward`. Verified: 475 tests on CPython 3.11–3.14 (macOS arm64); real-world benchmark with zero false successes.

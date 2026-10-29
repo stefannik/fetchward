@@ -5,8 +5,9 @@ layer of browser confinement: every tunnel (``CONNECT``) and every plain-HTTP re
 validated by the destination guard at connect time and dialed only to the validated
 address. It never terminates TLS. Per-request admission and accounting is a separate
 layer (browser request interception); this gateway does not replace it, and is not a
-trusted-local exemption that pages can use: clients must present a per-session
-credential, and the listener binds to loopback only.
+trusted-local exemption that pages can use: clients normally must present a per-session
+credential, and the listener binds to loopback only. An explicitly unauthenticated gateway
+still validates every destination and must be scoped to the owning browser's lifetime.
 
 Lifetime rules: no work starts once the acquisition deadline has passed or the gateway is
 stopping — every dial, read and write re-checks both, with no fresh allowance for expired
@@ -74,7 +75,9 @@ class EgressGateway:
         remaining: Callable[[], float],
         connect_timeout: float = 5.0,
         cleanup_timeout: float = 1.0,
+        require_auth: bool = True,
     ) -> None:
+        self._require_auth = require_auth
         self._check = check  # DestinationGuard.check(url, timeout, cancel=...) or a test wrapper
         self._remaining = remaining  # the acquisition's remaining time
         self._connect_timeout = connect_timeout
@@ -202,7 +205,7 @@ class EgressGateway:
                 target, _, _version = remainder.partition(" ")
                 headers = [tuple(part.strip() for part in line.split(":", 1)) for line in lines[1:] if ":" in line]
                 auth = next((v for k, v in headers if k.lower() == "proxy-authorization"), "")
-                if not hmac.compare_digest(auth.encode(), self._expected.encode()):
+                if self._require_auth and not hmac.compare_digest(auth.encode(), self._expected.encode()):
                     self._deny(client, "407 Proxy Authentication Required", "auth_required", "[proxy]", "gateway.auth")
                     return
                 if method.upper() == "CONNECT":

@@ -1,4 +1,4 @@
-"""Playwright Chromium acquisition through an authenticated non-decrypting proxy."""
+"""Chromium acquisition through a guarded, non-decrypting loopback proxy."""
 from __future__ import annotations
 
 import importlib.metadata
@@ -52,9 +52,20 @@ class BrowserStatus:
     detail: str
     facts: tuple[tuple[str, str], ...] = ()
 
-def browser_status() -> BrowserStatus:
+def browser_status(policy=None) -> BrowserStatus:
     if is_forked_child():
         return BrowserStatus(False, "backend.fork_unsafe", "browser runtime is not supported in a forked child")
+    if policy is not None and policy.stealth.mode == "real-chrome":
+        import os
+        from ._real_chrome import DEFAULT_CHROME
+        executable = policy.stealth.chrome_path or DEFAULT_CHROME
+        if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
+            return BrowserStatus(False, "backend.unavailable", f"Google Chrome executable unavailable: {executable}")
+        try:
+            importlib.metadata.version("playwright")
+        except importlib.metadata.PackageNotFoundError:
+            return BrowserStatus(False, "backend.unavailable", "install fetchward[browser] for CDP attachment")
+        return BrowserStatus(True, None, "installed Chrome with guarded proxy")
     return _browser_status_cached()
 
 @lru_cache(maxsize=1)
@@ -392,7 +403,7 @@ def _browser_worker(browser, native_ua, policy, admission, guard, safety, robots
     from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
     # ``context`` is either the caller's persistent context or one this worker creates and closes.
-    host_lease = ticket = None
+    host_lease = ticket = page = None
     ticket_started = 0.0
     first_document = True
 
@@ -513,6 +524,14 @@ def _browser_worker(browser, native_ua, policy, admission, guard, safety, robots
         context.on("request", on_request)
         context.route("**/*", route_request)
         context.on("response", on_response)
+        if policy.stealth.mode == "real-chrome":
+            cdp = context.new_cdp_session(page)
+            cdp.send("Network.enable")
+            cdp.send("Network.setBypassServiceWorker", {"bypass": True})
+            native = page.evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome")
+            ua = _effective_ua(policy, native)
+            if ua:
+                cdp.send("Network.setUserAgentOverride", {"userAgent": ua})
         try:
             navigation = page.goto(start.url, wait_until="commit", timeout=timeout_ms())
             if navigation is not None:
@@ -591,9 +610,18 @@ def _browser_worker(browser, native_ua, policy, admission, guard, safety, robots
                                elapsed=time.monotonic() - ticket_started, reason=state.denial or state.error)
         if host_lease is not None:
             host_lease.release()
-        if context is not None:
+        if context is not None and policy.stealth.mode != "real-chrome":
             try:
                 context.close()
+            except Exception:
+                pass
+        elif context is not None:
+            # The attached default context outlives this worker: detach handlers before the
+            # connection drops so in-flight routes are not cancelled noisily.
+            try:
+                context.unroute_all(behavior="ignoreErrors")
+                if page is not None:
+                    page.close()
             except Exception:
                 pass
         state.completed = True
@@ -662,15 +690,34 @@ def _profile_acquisition(manager, profile, policy, admission, guard, safety, rob
                     start, credentials, attempt_id, context=context)
 
 
-def _profile_thread(profile, lock, policy, admission, guard, safety, robots, gateway, state, start, credentials, attempt_id, done):
+def _profile_thread(profile, lock, policy, admission, guard, safety, robots, gateway, state, start, credentials, attempt_id, done, chrome=None):
     from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
     manager = None
     try:
         try:
             manager = sync_playwright().start()
-            _profile_acquisition(manager, profile, policy, admission, guard, safety, robots,
-                                 gateway, state, start, credentials, attempt_id)
+            if chrome is None:
+                _profile_acquisition(manager, profile, policy, admission, guard, safety, robots,
+                                     gateway, state, start, credentials, attempt_id)
+            else:
+                browser, context = chrome.start(manager)
+                try:
+                    state.backend_version = browser.version
+                    state.evidence.append(Evidence("stealth.real_chrome", EvidenceCategory.OBSERVATION, True,
+                                                   attempt_id, facts=(("version", browser.version),
+                                                                      ("ownership", chrome.ownership))))
+                    _browser_worker(None, None, policy, admission, guard, safety, robots, gateway, state,
+                                    start, credentials, attempt_id, context=context)
+                finally:
+                    browser.close()
+        except (FileNotFoundError, OSError) as exc:
+            state.error = "backend.unavailable"
+            state.error_detail = str(exc)
+        except (TimeoutError, RuntimeError) as exc:
+            state.error = "backend.unavailable" if chrome is not None else (
+                "budget.deadline" if admission.remaining() <= 0 else "backend.unavailable")
+            state.error_detail = str(exc)
         except PlaywrightError:
             state.error = "budget.deadline" if admission.remaining() <= 0 else "backend.unavailable"
         except BaseException as exc:
@@ -681,6 +728,8 @@ def _profile_thread(profile, lock, policy, admission, guard, safety, robots, gat
                 manager.stop()
             except Exception:
                 pass
+        if chrome is not None:
+            chrome.stop()
         state.completed = True
         lock.release()
         done.set()
@@ -771,7 +820,8 @@ def _build_record(policy, admission, gateway, state, start, attempt_id, started_
             rendered = RenderedRepresentation(state.dom, attempt_id, state.final_url or start.url, time.time(), readiness)
     if source:
         admission.retain_bytes(len(source.body))
-    return AttemptRecord(id=attempt_id, mode=Mode.BROWSER, backend=BROWSER_BACKEND, backend_version=state.backend_version,
+    backend = "real-chrome" if policy.stealth.mode == "real-chrome" else BROWSER_BACKEND
+    return AttemptRecord(id=attempt_id, mode=Mode.BROWSER, backend=backend, backend_version=state.backend_version,
                          started_at=started_wall, duration=max(0.0, time.time() - started_wall), requested_url=start.url,
                          final_url=state.final_url or start.url, outcome=outcome, reasons=(reason,) if reason else (),
                          redirects=state.redirects, requests=admission.events_since(first_seq), evidence=tuple(evidence),
@@ -855,7 +905,18 @@ class _BrowserPool:
         self.fork_generation = generation()
         self.condition = threading.Condition()
         self.hosts: dict[str, set[_BrowserHost]] = {}
+        self.chromes = set()
         self.closed = False
+
+    def register_chrome(self, chrome):
+        with self.condition:
+            if self.closed:
+                raise _BrowserOperationalError("backend.unavailable", "browser pool is closed")
+            self.chromes.add(chrome)
+
+    def unregister_chrome(self, chrome):
+        with self.condition:
+            self.chromes.discard(chrome)
 
     def submit(self, args, admission, engine):
         with self.condition:
@@ -894,10 +955,13 @@ class _BrowserPool:
         with self.condition:
             self.closed = True
             hosts = tuple(host for engine_hosts in self.hosts.values() for host in engine_hosts)
+            chromes = tuple(self.chromes)
             self.hosts.clear()
             for host in hosts:
                 host.stop()
             self.condition.notify_all()
+        for chrome in chromes:
+            chrome.stop()
         if wait:
             deadline = time.monotonic() + 1.5
             for host in hosts:
@@ -909,7 +973,7 @@ class _BrowserPool:
 
 
 def run_browser(policy, admission, guard, safety, robots, *, start, attempt_id, started_wall, credentials=None, pool, profile=None):
-    status = browser_status()
+    status = browser_status(policy) if policy.stealth.mode == "real-chrome" else browser_status()
     if not status.available:
         raise _BrowserUnavailable(status)
     lock = None
@@ -921,8 +985,13 @@ def run_browser(policy, admission, guard, safety, robots, *, start, attempt_id, 
         except _ProfileMissing as exc:
             raise _BrowserOperationalError("profile.unavailable", "profile directory is missing") from exc
     handed_off = False
+    chrome = None
     try:
-        gateway = EgressGateway(guard.check, remaining=admission.remaining, cleanup_timeout=0.5)
+        real_chrome = policy.stealth.mode == "real-chrome"
+        if profile is not None:
+            profile._use_engine("real-chrome" if real_chrome else "playwright-chromium")
+        gateway = EgressGateway(guard.check, remaining=admission.remaining, cleanup_timeout=0.5,
+                                require_auth=not real_chrome)
         try:
             gateway.start()
         except OSError as exc:
@@ -930,6 +999,10 @@ def run_browser(policy, admission, guard, safety, robots, *, start, attempt_id, 
         state = _Capture(final_url=start.url)
         first_seq = admission.seq
         if profile is not None:
+            if real_chrome:
+                from ._real_chrome import RealChrome
+                chrome = RealChrome(pool, policy.stealth.chrome_path, profile.path, gateway.proxy["server"],
+                                    time.monotonic() + admission.remaining(), headless=True)
             # Directory name only: the full path is the caller's business.
             state.evidence.append(Evidence("profile.used", EvidenceCategory.OBSERVATION, True, attempt_id,
                                            facts=(("profile", profile.path.name),)))
@@ -937,7 +1010,7 @@ def run_browser(policy, admission, guard, safety, robots, *, start, attempt_id, 
             threading.Thread(
                 target=_profile_thread,
                 args=(profile, lock, policy, admission, guard, safety, robots, gateway, state, start,
-                      credentials, attempt_id, done),
+                      credentials, attempt_id, done, chrome),
                 daemon=True, name="browser-profile",
             ).start()
             # The profile thread releases the lock when its own cleanup ends, so an overrun
@@ -952,11 +1025,15 @@ def run_browser(policy, admission, guard, safety, robots, *, start, attempt_id, 
         try:
             done.wait(admission.remaining())
         except BaseException:
+            if chrome is not None:
+                chrome.stop()
             gateway.stop()
             finished = done.wait(1.5)
             if profile is None:
                 pool.release(host, retire=not finished)
             raise
+        if chrome is not None and not done.is_set():
+            chrome.stop()
         gateway.stop()
         finished = done.wait(1.5) if not done.is_set() else True
         if profile is None:

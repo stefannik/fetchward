@@ -7,12 +7,11 @@ waits for one of three endings: the user closes the window, an ``until_*`` condi
 observed, or the timeout elapses. Cookies the user's actions produce stay in the profile for
 later headless browser acquisitions.
 
-Confinement is the browser confinement described above: every connection goes
-through the authenticated, non-decrypting loopback egress proxy with destination checks at
-connect time. Popups are allowed (logins use them) but a popup is still an ordinary page in
-the same context, so it is proxied and guarded too. Resource blocking is off because the user
-needs a normal page; downloads, service workers, QUIC and WebRTC UDP stay off. robots.txt is
-not consulted: the session is user-initiated by definition.
+Every connection goes through a non-decrypting loopback egress proxy with destination checks
+at connect time. It is authenticated except in opt-in real-Chrome mode. Popups use the same
+context and are proxied and guarded too. Resource blocking is off; downloads, QUIC and WebRTC
+UDP stay off. Service workers are allowed only in real-Chrome sessions. robots.txt is not
+consulted: the session is user-initiated by definition.
 """
 
 from __future__ import annotations
@@ -101,13 +100,15 @@ def run_session(
     headless: bool = False,
     page_hook: Callable[..., None] | None = None,
     extra_evidence: tuple[Evidence, ...] = (),
+    pool=None,
 ) -> InteractionResult:
     """Open one visible session, wait for an ending, then close it; ``page_hook`` is a test seam."""
     from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, sync_playwright
 
-    status = browser_status()
+    real_chrome = policy.stealth.mode == "real-chrome"
+    status = browser_status(policy) if real_chrome else browser_status()
     if not status.available:
-        raise FetchwardError(f"browser backend unavailable: {status.code or 'backend.unavailable'}")
+        raise FetchwardError(f"browser backend unavailable: {status.code or 'backend.unavailable'}: {status.detail}")
 
     started = time.monotonic()
     deadline = started + timeout
@@ -131,7 +132,7 @@ def run_session(
     final_url = target.url
     ended_by = "timeout"
     gateway: EgressGateway | None = None
-    manager = None
+    manager = browser = chrome = None
     context = page = None
 
     def note(code: str, *, value: object = True) -> None:
@@ -140,6 +141,7 @@ def run_session(
             evidence.append(Evidence(code, EvidenceCategory.OBSERVATION, value))
 
     try:
+        profile._use_engine("real-chrome" if real_chrome else "playwright-chromium")
         guard = DestinationGuard(policy.destinations, resolver)
         # Check the start URL before opening a window: a denied destination should be a clear
         # error, not a browser page showing a proxy failure.
@@ -151,7 +153,8 @@ def run_session(
                 "need an explicit DestinationPolicy(trusted_local=...)"
             ) from exc
         gateway = EgressGateway(
-            guard.check, remaining=lambda: max(0.0, deadline - time.monotonic()), cleanup_timeout=0.5
+            guard.check, remaining=lambda: max(0.0, deadline - time.monotonic()), cleanup_timeout=0.5,
+            require_auth=not real_chrome,
         )
         try:
             gateway.start()
@@ -160,12 +163,24 @@ def run_session(
 
         manager = sync_playwright().start()
         try:
-            context = _launch_persistent(
-                manager, profile.path, gateway.proxy, None,
-                max(1, int(max(0.0, deadline - time.monotonic()) * 1000)),
-                policy.transport.browser_engine, headless=headless,
-            )
-        except PlaywrightError as exc:
+            if real_chrome:
+                from ._real_chrome import RealChrome
+                chrome = RealChrome(pool, policy.stealth.chrome_path, profile.path, gateway.proxy["server"],
+                                    deadline, headless=headless)
+                browser, context = chrome.start(manager)
+                evidence.extend((
+                    Evidence("stealth.real_chrome", EvidenceCategory.OBSERVATION, True,
+                             facts=(("version", browser.version), ("ownership", chrome.ownership))),
+                    Evidence("stealth.proxy_unauthenticated", EvidenceCategory.OBSERVATION, True),
+                    Evidence("stealth.service_workers_allowed", EvidenceCategory.OBSERVATION, True),
+                ))
+            else:
+                context = _launch_persistent(
+                    manager, profile.path, gateway.proxy, None,
+                    max(1, int(max(0.0, deadline - time.monotonic()) * 1000)),
+                    policy.transport.browser_engine, headless=headless,
+                )
+        except (PlaywrightError, OSError, TimeoutError, RuntimeError) as exc:
             raise FetchwardError("browser could not be started for an interactive session") from exc
 
         def route_request(route) -> None:
@@ -247,11 +262,18 @@ def run_session(
     finally:
         # Cookies the user produced are flushed by a clean context close; the profile lock is
         # held until Chromium has actually let go of the directory.
-        if context is not None:
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        elif context is not None:
             try:
                 context.close()
             except Exception:
                 pass
+        if chrome is not None:
+            chrome.stop()
         if manager is not None:
             try:
                 manager.stop()

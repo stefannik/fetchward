@@ -1,6 +1,6 @@
 """fetchward — acquire a web resource under an explicit policy, with evidence of how."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from ._async import AsyncFetcher, async_fetch
 from ._cache import ResponseCache
@@ -35,6 +35,7 @@ from .policy import (
     DestinationPolicy,
     Readiness,
     SchedulingPolicy,
+    StealthPolicy,
     TransportPolicy,
     TrustedOrigin,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "ResourceKind",
     "ResponseCache",
     "SchedulingPolicy",
+    "StealthPolicy",
     "Session",
     "SessionClosedError",
     "SessionSnapshot",

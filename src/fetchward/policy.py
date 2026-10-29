@@ -266,6 +266,20 @@ class TransportPolicy:
 
 
 @dataclass(frozen=True)
+class StealthPolicy:
+    """Explicit opt-in to a separately launched installed Chrome."""
+
+    mode: Literal["off", "real-chrome"] = "off"
+    chrome_path: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("off", "real-chrome"):
+            raise ConfigurationError("stealth mode must be 'off' or 'real-chrome'")
+        if self.chrome_path is not None and (not isinstance(self.chrome_path, str) or not self.chrome_path):
+            raise ConfigurationError("chrome_path must be a non-empty string or None")
+
+
+@dataclass(frozen=True)
 class AcquisitionPolicy:
     budgets: Budgets = field(default_factory=Budgets)
     readiness: Readiness = field(default_factory=Readiness)
@@ -273,6 +287,7 @@ class AcquisitionPolicy:
     destinations: DestinationPolicy = field(default_factory=DestinationPolicy)
     transport: TransportPolicy = field(default_factory=TransportPolicy)
     scheduling: SchedulingPolicy = field(default_factory=SchedulingPolicy)
+    stealth: StealthPolicy = field(default_factory=StealthPolicy)
 
     def validate_call(self, mode: str, timeout: float) -> Mode:
         """Reject unsupported or contradictory call configuration before any I/O."""

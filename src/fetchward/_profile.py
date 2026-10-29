@@ -25,7 +25,7 @@ from .errors import ConfigurationError, FetchwardError
 PROFILE_MARKER = "fetchward-profile.json"
 _LEGACY_PROFILE_MARKER = "ot_fetch-profile.json"
 PROFILE_LOCK = "fetchward.lock"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _FOREIGN_PROFILE_FILE = "Local State"
 _LOCK_POLL_SECONDS = 0.02
 
@@ -171,11 +171,27 @@ class BrowserProfile:
         except (OSError, ValueError) as exc:
             raise ConfigurationError("profile marker is unreadable") from exc
         schema = payload.get("schema") if isinstance(payload, dict) else None
-        if type(schema) is not int or schema != SCHEMA_VERSION:
+        if type(schema) is not int or schema not in (1, SCHEMA_VERSION):
             raise ConfigurationError("profile marker has an unsupported schema version")
+        if schema == SCHEMA_VERSION and payload.get("engine") not in (None, "playwright-chromium", "real-chrome"):
+            raise ConfigurationError("profile marker has an unsupported engine")
 
-    def _write_marker(self) -> None:
-        payload = json.dumps({"schema": SCHEMA_VERSION, "created_by": "fetchward"}) + "\n"
+    def _use_engine(self, engine: str) -> None:
+        """Called under the profile lock before launching a browser."""
+        marker = next(self._path / name for name in (PROFILE_MARKER, _LEGACY_PROFILE_MARKER)
+                      if (self._path / name).is_file())
+        self._check_marker(marker)
+        payload = json.loads(marker.read_text("utf-8"))
+        previous = payload.get("engine")
+        if previous is None and payload["schema"] == 1 and (self._path / _FOREIGN_PROFILE_FILE).exists():
+            previous = "playwright-chromium"
+        if previous is not None and previous != engine:
+            raise ConfigurationError(f"profile engine mismatch: profile uses {previous}, requested {engine}")
+        if previous is None or payload["schema"] != SCHEMA_VERSION:
+            self._write_marker(engine)
+
+    def _write_marker(self, engine: str | None = None) -> None:
+        payload = json.dumps({"schema": SCHEMA_VERSION, "created_by": "fetchward", "engine": engine}) + "\n"
         temporary = self._path / f".{PROFILE_MARKER}.{os.getpid()}"
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:

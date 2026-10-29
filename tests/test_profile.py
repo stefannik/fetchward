@@ -25,9 +25,11 @@ def test_profile_creates_private_directory_with_marker(tmp_path):
     assert profile.path == path
     assert stat.S_IMODE(path.stat().st_mode) == 0o700
     marker = json.loads((path / PROFILE_MARKER).read_text("utf-8"))
-    assert marker["schema"] == 1
+    assert marker["schema"] == 2
     assert stat.S_IMODE((path / PROFILE_MARKER).stat().st_mode) == 0o600
-    # A fetchward profile is adopted again, never reported as foreign.
+    # Both current and old markers are accepted on reopening.
+    assert BrowserProfile(path).exists
+    (path / PROFILE_MARKER).write_text(json.dumps({"schema": 1, "created_by": "fetchward"}))
     assert BrowserProfile(path).exists
 
 

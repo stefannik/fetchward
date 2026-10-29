@@ -100,6 +100,8 @@ class Fetcher:
         if profile is not None and not isinstance(profile, BrowserProfile):
             raise TypeError("profile must be a BrowserProfile or None")
         self._policy = policy if policy is not None else AcquisitionPolicy()
+        if self._policy.stealth.mode == "real-chrome" and profile is None:
+            raise ConfigurationError("real-chrome requires Fetcher(profile=BrowserProfile(...))")
         self._session = session
         self._cache = cache
         self._memory = memory
@@ -393,7 +395,9 @@ class Fetcher:
         def try_browser() -> AttemptRecord | None:
             nonlocal browser_failure, browser_attempted
             browser_attempted = True
-            bstatus = browser_status()
+            if policy.stealth.mode == "real-chrome":
+                evidence.append(Evidence("stealth.proxy_unauthenticated", EvidenceCategory.OBSERVATION, True))
+            bstatus = browser_status(policy) if policy.stealth.mode == "real-chrome" else browser_status()
             if not bstatus.available:
                 browser_failure = bstatus.code or "backend.unavailable"
                 evidence.append(
@@ -776,6 +780,7 @@ class Fetcher:
             headless=_headless_for_tests,
             page_hook=_page_hook,
             extra_evidence=extra,
+            pool=self._browser_pool,
         )
 
     def _robots_fetch_for(
